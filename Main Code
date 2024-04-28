@@ -1,0 +1,597 @@
+# Load packages
+library(readxl)
+library(tidyverse)
+library(lme4)
+library(ggplot2)
+library(emmeans)
+library(broom)
+library(spdep)
+library(tidyr)
+library(dplyr)
+library(cowplot)
+library(vegan)
+library(grDevices)
+
+# loading beetle data and wrangling-------------------------------------
+Bug_Identification_Correct <- read_excel("Downloads/Bug Identification Correct.xlsx", 
+                                         sheet = "Combined_Farms")
+View(Bug_Identification_Correct)
+
+Bug_Identification_Correct[["Meligethes aeneus - pollen beetle"]][is.na(Bug_Identification_Correct[["Meligethes aeneus - pollen beetle"]])] <- 0
+Bug_Identification_Correct[["Notes"]][is.na(Bug_Identification_Correct[["Notes"]])] <- "None"
+
+is.na(Bug_Identification_Correct)
+
+# creating colour schemes for figures ---------------------------------------------------------------- 
+
+diss_colours = list(
+  allfieldscolours = c("#71b48d", "#fe7f2d", "#be8fe0", "#ea638c",
+                  "#90d7ff"),
+  Thomsoncolours = c("#bbdefb", "#4cc9f0", "#59a5d8", "#386fa4",
+                     "#003554"),
+  Chazcolours = c("#d7E6B2", "#b6d274", "#6a994e", "#386641",
+                  "#344e41"),
+  JohnDcolours = c("#F8C9D7", "#EE81A2", "#e43A6d", "#b41847",
+                  "#6C0F2B"),
+  Dukecolours = c("#FFCEAD", "#FEA971", "#F87A25", "#CB5201",
+                  "#8D3901"),
+  Grahamcolours = c("#E3CFF2", "#C89FE5", "#A35FD3", "#702CA0",
+                  "#431A60")
+)
+
+diss_palettes = function(name, n, all_palettes = diss_colours, type = c("discrete", "continuous")) {
+  palette = all_palettes[[name]]
+  if (missing(n)) {
+    n = length(palette)
+  }
+  type = match.arg(type)
+  out = switch(type,
+               continuous = grDevices::colorRampPalette(palette)(n),
+               discrete = palette[1:n]
+  )
+  structure(out, name = name, class = "palette")
+}
+
+diss_palettes("allfieldscolours", type = "discrete")
+diss_palettes("Thomsoncolours", type = "discrete")
+diss_palettes("Chazcolours", type = "discrete")
+diss_palettes("JohnDcolours", type = "discrete")
+diss_palettes("Dukecolours", type = "discrete")
+diss_palettes("Grahamcolours", type = "discrete")
+
+df = data.frame(x = c("Thomson", "Chaz", "John Depree", "Duke", "Graham"),
+                y = 1:5)
+g = ggplot(data = df,
+           mapping = aes(x = x, y = y)) +
+  theme_minimal() +
+  theme(legend.position.inside = c(0.05, 0.95),
+        legend.justification = c(0, 1),
+        legend.title = element_blank(), 
+        axis.title = element_blank())
+
+scale_colour_diss_d = function(name) {
+  ggplot2::scale_colour_manual(values = diss_palettes(name,
+                                                     type = "discrete"))
+}
+
+scale_fill_diss_d = function(name) {
+  ggplot2::scale_fill_manual(values = diss_palettes(name,
+                                                   type = "discrete"))
+}
+
+scale_colour_diss_c = function(name) {
+  ggplot2::scale_colour_gradientn(colours = diss_palettes(name = name,
+                                                         type = "continuous"))
+}
+
+scale_fill_diss_c = function(name) {
+  ggplot2::scale_fill_gradientn(colours = diss_palettes(name = name,
+                                                       type = "continuous"))
+}
+
+# Checking if total beetles is normally distributed for the linear mixed model---------------------------------------------------------
+# it was not so I logged it and now it is
+hist(Bug_Identification_Correct$total_beetles)
+
+Bug_Identification_Correct$total_beetles <- log(1 + Bug_Identification_Correct$total_beetles)
+
+hist(Bug_Identification_Correct$total_beetles)
+
+# Checking if total species is normally distributed for the linear mixed model--------------------- 
+
+hist(Bug_Identification_Correct$total_species)
+
+# changing distance and site into factors -------------------------------------------------
+
+Bug_Identification_Correct$distance <- as.factor(Bug_Identification_Correct$distance)
+Bug_Identification_Correct$site <- as.factor(Bug_Identification_Correct$site)
+
+# Having a look at basic measurements----------------------------------
+
+totals <- read_excel("Downloads/Bug Identification Correct.xlsx", 
+                     sheet = "totals")
+
+view(totals)
+
+max(totals$total_species_t)
+min(totals$total_species_t)
+max(totals$total_beetles_t)
+min(totals$total_beetles_t)
+
+# Interesting visualisations (proportions and rarefraction) -----------------------------------------------------------------------------------------------------------
+
+# REFRACTION -------------------------
+
+allbugs <- read_excel("Downloads/Bug Identification Correct.xlsx", 
+                                                    sheet = "Combined_Farms")
+view(allbugs)
+allbugscommunity = allbugs[5:18]
+
+curve_all = specaccum(allbugscommunity, method = "random", 
+                      permutations = 100)
+
+#subset each habitat into its own df
+allbugs %>% filter(site == "Thomson") -> Thomson
+allbugs %>% filter(site == "Chaz") -> Chaz
+allbugs %>% filter(site == "Graham") -> Graham
+allbugs %>% filter(site == "John_D") -> John_D
+allbugs %>% filter(site == "Duke") -> Duke
+
+#calc species accumulation curve for each habitat
+curve_thomson = specaccum(Thomson[, 5:18], method = "random")
+curve_chaz = specaccum(Chaz[, 5:18], method = "random")
+curve_Graham = specaccum(Graham[, 5:18], method = "random")
+curve_John_D = specaccum(John_D[, 5:18], method = "random")
+curve_Duke = specaccum(Duke[, 5:18], method = "random")
+
+#plot curve_all first or leave out 
+plot(curve_all)
+
+#then plot the rest
+# use the par function first to split the plot window
+# to plot each figure individually take OUT the "add = TRUE" code for each one (goes inbetween curve_NAME and col=)
+# add back in for combined plot (all lines overlapping)
+par(mfrow = c(3, 2))
+par(mfrow = c(1, 1))
+
+plot(curve_thomson, xlab = "Number of samples" ,ylab = "Number of species", col = "#90d7ff") #col is COLOUR setting, so change it to something else if you want
+plot(curve_chaz, xlab = "Number of samples" ,ylab = "Number of species", col = "#71b48d")
+plot(curve_Graham, xlab = "Number of samples" ,ylab = "Number of species", col = "#ea638c")
+plot(curve_John_D, xlab = "Number of samples" ,ylab = "Number of species", col = "#fe7f2d")
+plot(curve_Duke, xlab = "Number of samples" ,ylab = "Number of species", col = "#be8fe0")
+
+
+# Prong 1 - within (inside) fields -----------------------------------------------------------------------------------------------------
+
+# Grouped Linear Modeling
+# new sub-data sets created for each fields data
+
+newBeetle1 <- Bug_Identification_Correct %>%  filter( site == "Thomson")
+newBeetle2 <- Bug_Identification_Correct %>%  filter( site == "Chaz")
+newBeetle3 <- Bug_Identification_Correct %>%  filter( site == "John_D")
+newBeetle4 <- Bug_Identification_Correct %>%  filter( site == "Duke")
+newBeetle5 <- Bug_Identification_Correct %>%  filter( site == "Graham")
+
+# linear models used to test for impact of distance on total beetles in each field
+
+total_lm_site <- aov(total_beetles ~ site, data = Bug_Identification_Correct)
+summary(total_lm_site)
+# not significant
+
+
+total_lm_distance <- aov(total_beetles ~ distance, data = Bug_Identification_Correct)
+summary(total_lm_distance)
+# not significant
+
+total_lm_Thomson <- aov(total_beetles ~ distance, data = newBeetle1)
+summary(total_lm_Thomson)
+# not significant
+
+total_lm_Chaz <- aov(total_beetles ~ distance, data = newBeetle2)
+summary(total_lm_Chaz)
+# not signif
+
+total_lm_JohnD <- aov(total_beetles ~ distance, data = newBeetle3)
+summary(total_lm_JohnD)
+# not significant
+
+total_lm_Duke <- aov(total_beetles ~ distance, data = newBeetle4)
+summary(total_lm_Duke)
+# not signif
+
+total_lm_Graham <- aov(total_beetles ~ distance, data = newBeetle5)
+summary(total_lm_Graham)
+# not signif 
+
+# linear models used to test for impact of distance on total species in each field
+
+totals_lm_site <- aov(total_species ~ site, data = Bug_Identification_Correct)
+summary(totals_lm_site)
+# not significant
+
+totals_lm_distance <- aov(total_species ~ distance, data = Bug_Identification_Correct)
+summary(totals_lm_distance)
+# not significant
+
+species_lm_Thomson <- aov(total_species ~ distance, data = newBeetle1)
+summary(species_lm_Thomson)
+# not signif
+
+species_lm_Chaz <- aov(total_species ~ distance, data = newBeetle2)
+summary(species_lm_Chaz)
+# not signif
+
+species_lm_JohnD <- aov(total_species ~ distance, data = newBeetle3)
+summary(species_lm_JohnD)
+# not signif
+
+species_lm_Duke <- aov(total_species ~ distance, data = newBeetle4)
+summary(species_lm_Duke)
+# not signif
+
+species_lm_Graham <- aov(total_species ~ distance, data = newBeetle5)
+summary(species_lm_Graham)
+TukeyHSD(species_lm_Graham)
+# signif at distance 4-3 and 5-4
+
+# Visualisations for impact of distance on total beetles ---
+
+boxplotThomson1 <- ggplot(newBeetle1, aes(x = distance, y = total_beetles, fill= distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  scale_fill_diss_d("Thomsoncolours") +
+  labs(
+    x = "Distance", 
+    y = "Total beetles per sample"
+  )
+
+boxplotChaz1 <- ggplot(newBeetle2, aes(x = distance, y = total_beetles, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  scale_fill_diss_d("Chazcolours") +
+  labs(
+    x = "Distance", 
+    y = "Total beetles per sample"
+  )
+
+boxplotJohnD1 <- ggplot(newBeetle3, aes(x = distance, y = total_beetles, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  scale_fill_diss_d("JohnDcolours") +
+  labs(
+    x = "Distance", 
+    y = "Total beetles per sample"
+  )
+
+boxplotDuke1 <- ggplot(newBeetle4, aes(x = distance, y = total_beetles, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  scale_fill_diss_d("Dukecolours") +
+  labs(
+    x = "Distance", 
+    y = "Total beetles per sample"
+  )
+
+boxplotGraham1 <- ggplot(newBeetle5, aes(x = distance, y = total_beetles, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +  # Specify colors for median lines
+  theme_classic() +
+  scale_fill_diss_d("Grahamcolours") +
+  labs(
+    x = "Distance", 
+    y = "Total beetles per sample"
+  )
+
+# Combine all plots 
+plot_grid(boxplotThomson1, boxplotChaz1, boxplotJohnD1, boxplotDuke1, boxplotGraham1)
+
+# Now visualisations on how distance impacts total species
+
+boxplotThomson2 <- ggplot(newBeetle1, aes(x = distance, y = total_species, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  scale_fill_diss_d("Thomsoncolours") +
+  labs(
+    x = "Distance", 
+    y = "Total species per sample"
+  )
+
+boxplotChaz2 <- ggplot(newBeetle2, aes(x = distance, y = total_species, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  scale_fill_diss_d("Chazcolours") +
+  labs(
+    x = "Distance", 
+    y = "Total species per sample"
+  )
+
+boxplotJohnD2 <- ggplot(newBeetle3, aes(x = distance, y = total_species, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "black", "d5" = "white")) +
+  theme_classic() +
+  scale_fill_diss_d("JohnDcolours") +
+  labs(
+    x = "Distance", 
+    y = "Total species per sample"
+  )
+
+boxplotDuke2 <- ggplot(newBeetle4, aes(x = distance, y = total_species, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  scale_fill_diss_d("Dukecolours") +
+  labs(
+    x = "Distance", 
+    y = "Total species per sample"
+  )
+
+boxplotGraham2 <- ggplot(newBeetle5, aes(x = distance, y = total_species, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "black")) +
+  theme_classic() +
+  scale_fill_diss_d("Grahamcolours") +
+  labs(
+    x = "Distance", 
+    y = "Total species per sample"
+  )
+
+# Combine all plots 
+plot_grid(boxplotThomson2, boxplotChaz2, boxplotJohnD2, boxplotDuke2, boxplotGraham2)
+
+# Prong 2 - between (comparing) fields -----------------------------------------------------------------------------------------------------
+
+library(readxl)
+bugaverages <- read_excel("Downloads/Bug Identification Correct.xlsx", 
+                       sheet = "averages")
+View(bugaverages)
+
+bugaverages$distance <- as.factor(bugaverages$distance)
+bugaverages$site <- as.factor(bugaverages$site)
+
+newavgBeetle1 <- bugaverages %>%  filter( distance == "d1")
+newavgBeetle2 <- bugaverages %>%  filter( distance == "d2")
+newavgBeetle3 <- bugaverages %>%  filter( distance == "d3")
+newavgBeetle4 <- bugaverages %>%  filter( distance == "d4")
+newavgBeetle5 <- bugaverages %>%  filter( distance == "d5")
+
+# AVERAGE - linear models used to test for impact of distance on AVERAGE total beetles in each field
+
+avg_beetles_lm_distance <- aov(avg_total_beetles ~ distance, data = bugaverages)
+summary(avg_beetles_lm_distance)
+# not significant
+avg_beetles_lm_site <- aov(avg_total_beetles ~ site, data = bugaverages)
+summary(avg_beetles_lm_site)
+# not significant
+
+avg_beetles_lines <- ggplot(bugaverages, aes(x=distance, y=avg_total_beetles, group=site, colour=site)) +
+  geom_line() + 
+  theme_classic() +
+  scale_color_manual(values=c('#71b48d', '#fe7f2d', '#be8fe0', '#ea638c', '#90d7ff'))
+
+ggplot(bugaverages, aes(fill=site, y=avg_total_beetles, x=distance)) + 
+  geom_bar(position="dodge", stat="identity") +
+  theme_classic() +
+  xlab("Distance from semi-natural habitat") + 
+  ylab("Average total beetles") +
+  scale_fill_diss_d("allfieldscolours")
+
+# AVERAGE - linear models used to test for impact of distance on AVERAGE total species in each field
+
+avg_species_lm_distance <- aov(avg_total_species ~ distance, data = bugaverages)
+summary(avg_species_lm_distance)
+# not significant
+avg_species_lm_site <- aov(avg_total_species ~ site, data = bugaverages)
+summary(avg_species_lm_site)
+# not significant
+
+ggplot(bugaverages, aes(fill=site, y=avg_total_species, x=distance)) + 
+  geom_bar(position="dodge", stat="identity") +
+  theme_classic() +
+  xlab("Distance from semi-natural habitat") + 
+  ylab("Average total species") +
+  scale_fill_diss_d("allfieldscolours")
+
+# DIVERSITY MEASURES -Simpsons ---------------------------------
+
+mega_diversity <- read_excel("Downloads/Bug Identification Correct.xlsx", 
+                                         sheet = "Combined_Farms")
+View(mega_diversity)
+
+newdivBeetle1 <- mega_diversity %>%  filter( site == "Thomson")
+newdivBeetle2 <- mega_diversity %>%  filter( site == "Chaz")
+newdivBeetle3 <- mega_diversity %>%  filter( site == "John_D")
+newdivBeetle4 <- mega_diversity %>%  filter( site == "Duke")
+newdivBeetle5 <- mega_diversity %>%  filter( site == "Graham")
+
+mega_diversity$distance <- as.factor(mega_diversity$distance)
+mega_diversity$site <- as.factor(mega_diversity$site)
+
+fit <- lm(simpsons_index ~ distance + site, data = mega_diversity)
+summary(fit)
+
+anova1 <- aov(simpsons_index ~ site, data = mega_diversity)
+summary(anova1)
+TukeyHSD(anova1)
+
+anova2 <- aov(simpsons_index ~ distance, data = mega_diversity)
+summary(anova2)
+
+mega_div_site_t <- aov(simpsons_index ~ distance, data = newdivBeetle1)
+summary(mega_div_site_t)
+
+mega_div_site_c <- aov(simpsons_index ~ distance, data = newdivBeetle2)
+summary(mega_div_site_c)
+
+mega_div_site_j <- aov(simpsons_index ~ distance, data = newdivBeetle3)
+summary(mega_div_site_j)
+
+mega_div_site_d <- aov(simpsons_index ~ distance, data = newdivBeetle4)
+summary(mega_div_site_d)
+
+mega_div_site_g <- aov(simpsons_index ~ distance, data = newdivBeetle5)
+summary(mega_div_site_g)
+TukeyHSD(mega_div_site_g)
+# significant for distance 3 and distance 5
+
+# Visualisations of Simpsons findings
+boxplotmegadiversity1 <- ggplot(mega_diversity, aes(x = site, y = simpsons_index, fill = site)) +
+  geom_boxplot() +
+  theme_classic() +
+  xlab("Site") + 
+  ylab("Simpsons Diversity Index") +
+  scale_fill_diss_d("allfieldscolours")
+
+boxplotmegadiversityT <- ggplot(newdivBeetle1, aes(x = distance, y = simpsons_index, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  xlab("Distance") + 
+  ylab("Simpsons Diversity Index") +
+  scale_fill_discrete("Thomsoncolours", name = "Distance", labels = c("Distance 1", "Distance 2", "Distance 3", "Distance 4", "Distance 5")) + 
+  ylim(0,1)
+
+boxplotmegadiversityC <- ggplot(newdivBeetle2, aes(x = distance, y = simpsons_index, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  xlab("Distance") + 
+  ylab("Simpsons Diversity Index") +
+  scale_fill_diss_d("Chazcolours")
+
+boxplotmegadiversityJ <- ggplot(newdivBeetle3, aes(x = distance, y = simpsons_index, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  xlab("Distance") + 
+  ylab("Simpsons Diversity Index") +
+  scale_fill_diss_d("JohnDcolours")
+
+boxplotmegadiversityD <- ggplot(newdivBeetle4, aes(x = distance, y = simpsons_index, fill = distance)) +
+  geom_boxplot() + 
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "black", "d5" = "white")) +
+  theme_classic() +
+  xlab("Distance") + 
+  ylab("Simpsons Diversity Index") +
+  scale_fill_diss_d("Dukecolours")
+
+boxplotmegadiversityG <- ggplot(newdivBeetle5, aes(x = distance, y = simpsons_index, fill = distance)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = median,  # Calculate median
+    geom = "crossbar",  # Draw a horizontal line at the median
+    aes(color = distance),  # Color by site
+    width = 0.73,  # Adjust width of the crossbar
+    position = position_dodge(width = 0.75)  # Dodge the median lines
+  ) +
+  scale_color_manual(values = c("d1" = "black", "d2" = "black", "d3" = "black", "d4" = "white", "d5" = "white")) +
+  theme_classic() +
+  xlab("Distance") + 
+  ylab("Simpsons Diversity Index") +
+  scale_fill_diss_d("Grahamcolours") +
+  ylim(0,1)
+
+plot_grid(boxplotmegadiversityT, boxplotmegadiversityC, boxplotmegadiversityJ, boxplotmegadiversityD, boxplotmegadiversityG, labels = "AUTO")
