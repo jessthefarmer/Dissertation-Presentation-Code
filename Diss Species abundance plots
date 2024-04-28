@@ -1,0 +1,75 @@
+
+#install the required programs
+
+library(ggrepel)
+
+# Step 2) Configuration of the dataset to run the ggplot BiodiversityR functions
+
+#open the data and make sure when you're loading it in to relabel it as bugsaccum
+bugsaccum <- bugsaccum
+
+names(bugsaccum)
+
+# create two different dataframes for the species matrix and the factors
+
+spp = bugsaccum[, c(5:18)] # here we create the species matrix excluding the three factors
+
+factors = bugsaccum[, c(1:4)] #here we create a dataframe of the four factors: site, transect, label, and distance
+
+factors$site=factor(factors$site)## to indicate that site is a factor
+
+
+levels(factors$site) # check the names of the sites 
+
+levels(factors$site)= c("Hedgerow", "Unmanaged Grassland", "Managed Grassland", "Woodland", "Wildflower seed mix") # rename the troop names
+
+# rename sites
+
+# Run the rankabuncomp function to construct Whittaker plot
+
+RA.data <- rankabuncomp(spp, y=factors, factor='site', 
+                        return.data=TRUE, specnames=c(1:5), legend=FALSE)
+
+# In this case, I have label only the five most abundant species but you adjust this detail
+# in the argument specnames
+
+#making theme and aesthetics for plot
+
+BioR.theme <- theme(
+  panel.background = element_blank(), 
+  panel.border = element_blank(),
+  panel.grid = element_blank(),
+  axis.line = element_line("gray25"),
+  text = element_text(size = 14, family="Arial"),
+  axis.text = element_text(size = 15, colour = "gray25"),
+  axis.title.x = element_text(size = 16, colour = "gray25"),
+  axis.title.y = element_text(size = 16, colour = "gray25"),
+  legend.title = element_text(size = 15),
+  legend.text = element_text(size = 15),
+  legend.key = element_blank()) +
+    theme(strip.text=element_text(face="bold", color="white",size=rel(1.2)), 
+        strip.background=element_rect(fill="gray50",color="black", size=0.5))+
+  theme( axis.line = element_line(colour = "black", size = 0.3, linetype = "solid"))
+
+View(RA.data)
+
+# run the ggplot function to make final graphs
+
+distance_rank2 <- ggplot(data=RA.data, aes(x = rank, y = logabun)) + 
+  scale_x_continuous(limits = c(0, 10), breaks=c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10), sec.axis = dup_axis(labels=NULL, name=NULL)) +
+  scale_y_continuous(limits =c(0, 4), sec.axis = dup_axis(labels=NULL, name=NULL)) +
+  geom_line(aes(colour=Grouping), linewidth=0.8) + 
+  scale_color_manual(values=c('Pink','Yellow', 'Red', 'Green', 'Blue')) +
+  geom_point(aes(colour=Grouping), size=3, alpha=0.7) +
+  geom_text_repel(data=subset(RA.data, labelit == TRUE), 
+                  aes(label=species, fontface = 3), 
+                  angle=0, nudge_x= 3, nudge_y=0.6, show.legend=F) +
+  
+  #the argument nudge_y alters the length of the line
+  
+  BioR.theme +
+  scale_color_brewer(palette = "Set1") +
+  facet_wrap(~ Grouping) +
+  labs(x = "Abundance rank", y = "log (abundance)", colour = "distance")
+
+distance_rank2  
