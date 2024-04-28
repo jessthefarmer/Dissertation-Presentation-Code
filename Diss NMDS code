@@ -1,0 +1,139 @@
+# load packages for NMDS plot
+library(ggvegan)
+library(ggpubr)
+
+# read in data
+bugs <- Combined_Farms
+View(bugs)
+
+# check for any blanks
+is.na(bugs)
+
+bug.hel <-decostand(bugs, method="total")
+nmds1 <-metaMDS(bug.hel,distance = "bray")
+
+ordiplot(nmds1)
+ordiplot(nmds1, type="t")
+
+# plot basic NMDS plot
+autoplot(nmds1)
+
+# essentially creating coordinates 
+fort <- fortify(nmds1)
+View(fort)
+
+nmds1
+
+# create ggplot of species NMDS
+ggplot() +
+  geom_point(data = subset(fort, score == 'sites'),
+             mapping = aes(x = NMDS1, y = NMDS2),
+             colour = "black",
+             alpha = 0.5)+
+  geom_segment(data = subset(fort, score == 'species'),
+               mapping = aes(x= 0, y=0, xend = NMDS1, yend = NMDS2),
+               arrow = arrow(length = unit(0.015, "npc"),
+                             type = "closed"),
+               colour = "darkgray",
+               size = 0.8) +
+  geom_text(data = subset(fort, score == 'species'),
+            mapping = aes(label = label, x = NMDS1 * 1.1, y= NMDS2 * 1.1))+
+  geom_abline(intercept = 0,slope = 0, linetype="dashed", size=0.8, colour="grey")+
+  geom_vline(aes(xintercept = 0), linetype="dashed", size=0.8, colour="grey")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+p1 <- ggplot() +
+  geom_point(data = subset(fort, score == 'sites'),
+             mapping = aes(x = NMDS1, y = NMDS2),
+             colour = "black",
+             alpha = 0.5)+
+  geom_segment(data = subset(fort, score == 'species'),
+               mapping = aes(x= 0, y=0, xend = NMDS1, yend = NMDS2),
+               arrow = arrow(length = unit(0.015, "npc"),
+                             type = "closed"),
+               colour = "darkgray",
+               size = 0,
+               alpha = 0) +
+  geom_text_repel(data = subset(fort, score == 'species'),
+            mapping = aes(label = label, x = NMDS1 * 1.1, y= NMDS2 * 1.1),
+            size = 0,
+            alpha = 0)+
+  geom_abline(intercept = 0,slope = 0, linetype="dashed", size=0.8, colour="grey")+
+  geom_vline(aes(xintercept = 0), linetype="dashed", size=0.8, colour="grey")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+p2 <- ggplot() +
+  geom_point(data = subset(fort, score == 'sites'),
+             mapping = aes(x = NMDS1, y = NMDS2),
+             colour = "black",
+             alpha = 0)+
+  geom_segment(data = subset(fort, score == 'species'),
+               mapping = aes(x= 0, y=0, xend = NMDS1, yend = NMDS2),
+               arrow = arrow(length = unit(0.015, "npc"),
+                             type = "closed"),
+               colour = "darkgray",
+               size = 0.8) +
+  geom_text_repel(data = subset(fort, score == 'species'),
+            mapping = aes(label = label, x = NMDS1 * 1.1, y= NMDS2 * 1.1, fontface = 3))+
+  geom_abline(intercept = 0,slope = 0, linetype="dashed", size=0.8, colour="grey")+
+  geom_vline(aes(xintercept = 0), linetype="dashed", size=0.8, colour="grey")+
+  theme(aspect.ratio = 0.8,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+ggarrange(p1,p2,ncol=1)
+
+# adding in environmental data 
+bugs_env <- read_excel("Downloads/Bug Identification Correct.xlsx", 
+                       sheet = "bugs_env")
+
+bugs_env$distance <- as.factor(bugs_env$distance)
+bugs_env$site <- as.factor(bugs_env$site)
+
+summary(bugs_env)
+View(bugs_env)
+
+# Using adonis to check for statistical significance of species composition between sites and distances
+
+adonis2(bugs~site, data=bugs_env)
+
+adonis2(bugs~distance, data=bugs_env)
+
+p3 <- ggplot() +
+  geom_point(data = subset(fort, score == 'sites'),
+             mapping = aes(x = NMDS1, y = NMDS2, colour = bugs_env$site),
+             alpha = 0.5) +
+  geom_segment(data = subset(fort, score == 'species'),
+               mapping = aes(x= 0, y=0, xend = NMDS1, yend = NMDS2),
+               arrow = arrow(length = unit(0.015, "npc"),
+                             type = "closed"),
+               colour = "darkgray",
+               size = 0,
+               alpha = 0) +
+  geom_text_repel(data = subset(fort, score == 'species'),
+            mapping = aes(label = label, x = NMDS1 * 1.1, y= NMDS2 * 1.1),
+            size = 0,
+            alpha = 0)+
+  geom_abline(intercept = 0,slope = 0, linetype="dashed", size=0.8, colour="grey")+
+  geom_vline(aes(xintercept = 0), linetype="dashed", size=0.8, colour="grey")+
+  theme(aspect.ratio = 0.8,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black")
+        )+
+  scale_color_discrete("Sites")
+
+p3
+  
+# final plots 
+ggarrange(p3,p2)
+
